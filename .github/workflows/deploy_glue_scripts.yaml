@@ -1,0 +1,57 @@
+name: Deploy Glue Jobs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/glue_scripts/**'   # Adjust path to your Glue scripts folder
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  deploy-glue-jobs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Deploy Glue Python Shell Job
+      run: |
+        JOB_NAME="lab6-glue-python-shell-job"  # Your Glue job name
+        SCRIPT_LOCATION="s3://${{ secrets.PROJECT_BUCKET }}/scripts/glue_scripts/glue_job.py"
+
+        # Check if job exists
+        if aws glue get-job --job-name $JOB_NAME --region ${{ secrets.AWS_REGION }}; then
+          echo "Updating existing Glue job $JOB_NAME"
+          aws glue update-job --job-name $JOB_NAME --job-update '{
+            "Role": "arn:aws:iam::476114131873:role/GlueJobRole", 
+            "Command": {
+              "Name": "pythonshell",
+              "ScriptLocation": "'"$SCRIPT_LOCATION"'",
+              "PythonVersion": "3"
+            },
+            "DefaultArguments": {
+              "--job-language": "python",
+              "--extra-py-files": "",
+              "--enable-continuous-cloudwatch-log": "true"
+            },
+            "MaxRetries": 1,
+            "GlueVersion": "3.0",
+            "NumberOfWorkers": 2,
+            "WorkerType": "Standard"
+          }' --region ${{ secrets.AWS_REGION }}
+        else
+          echo "Creating Glue job $JOB_NAME"
+          aws glue create-job --name $JOB_NAME --role "arn:aws:iam::476114131873:role/GlueJobRole" --command "Name=pythonshell,ScriptLocation=$SCRIPT_LOCATION,PythonVersion=3" --default-arguments '{"--job-language":"python","--enable-continuous-cloudwatch-log":"true"}' --max-retries 1 --glue-version 3.0 --number-of-workers 2 --worker-type Standard --region ${{ secrets.AWS_REGION }}
+        fi

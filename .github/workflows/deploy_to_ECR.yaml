@@ -4,9 +4,15 @@ on:
   push:
     branches:
       - main
+    paths: 
+      - 'containers/**'
+  workflow_dispatch:
   pull_request:
     branches:
       - main
+    paths: 
+      - 'containers/**'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -31,7 +37,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: lab6-validation
           IMAGE_TAG: ${{ github.sha }}
-        working-directory: ./src/validation
+        working-directory: ./containers/validation
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
@@ -41,7 +47,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: lab6-transformation
           IMAGE_TAG: ${{ github.sha }}
-        working-directory: ./src/transformation
+        working-directory: ./containers/transformation
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
