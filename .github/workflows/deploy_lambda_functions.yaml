@@ -1,0 +1,60 @@
+name: Deploy Lambda Functions
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'src/lambda/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  deploy-lambdas:
+    name: Deploy All Lambda Functions
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # Deploy Lambda 1 (src/lambda/lambda1)
+    - name: Deploy Lambda 1
+      run: |
+        cd src/lambda/lambda1
+        pip install -r requirements.txt -t .
+        zip -r ../../../lambda1-deployment.zip .
+        cd ../../../
+        aws lambda update-function-code \
+          --function-name <LAMBDA1_FUNCTION_NAME> \
+          --zip-file fileb://lambda1-deployment.zip
+        aws lambda update-function-configuration \
+          --function-name <LAMBDA1_FUNCTION_NAME> \
+          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}"
+
+    # Deploy Lambda 2 (src/lambda/lambda2)
+    - name: Deploy Lambda 2
+      run: |
+        cd src/lambda/lambda2
+        pip install -r requirements.txt -t .
+        zip -r ../../../lambda2-deployment.zip .
+        cd ../../../
+        aws lambda update-function-code \
+          --function-name <LAMBDA2_FUNCTION_NAME> \
+          --zip-file fileb://lambda2-deployment.zip
+        aws lambda update-function-configuration \
+          --function-name <LAMBDA2_FUNCTION_NAME> \
+          --environment "Variables={STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}"
