@@ -39,10 +39,10 @@ jobs:
         zip -r ../../../lambda1-deployment.zip .
         cd ../../../
         aws lambda update-function-code \
-          --function-name <LAMBDA1_FUNCTION_NAME> \
+          --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
           --zip-file fileb://lambda1-deployment.zip
         aws lambda update-function-configuration \
-          --function-name <LAMBDA1_FUNCTION_NAME> \
+          --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
           --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}"
 
     # Deploy Lambda 2 (src/lambda/lambda2)
@@ -53,8 +53,8 @@ jobs:
         zip -r ../../../lambda2-deployment.zip .
         cd ../../../
         aws lambda update-function-code \
-          --function-name <LAMBDA2_FUNCTION_NAME> \
+          --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
           --zip-file fileb://lambda2-deployment.zip
         aws lambda update-function-configuration \
-          --function-name <LAMBDA2_FUNCTION_NAME> \
+          --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
           --environment "Variables={STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}"
