@@ -50,10 +50,12 @@ jobs:
         aws lambda update-function-code \
           --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
           --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
-          --s3-key scripts/lambda/lambda1-deployment.zip
+          --s3-key scripts/lambda/lambda1-deployment.zip \
+          --region ${{ secrets.AWS_REGION }}
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
-          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}"
+          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}" \
+          --region ${{ secrets.AWS_REGION }}
 
     # Package Lambda 2
     - name: Package Lambda 2
@@ -74,7 +76,9 @@ jobs:
         aws lambda update-function-code \
           --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
           --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
-          --s3-key scripts/lambda/lambda2-deployment.zip
+          --s3-key scripts/lambda/lambda2-deployment.zip \
+          --region ${{ secrets.AWS_REGION }}
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
-          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}"
+          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}" \
+          --region ${{ secrets.AWS_REGION }}
