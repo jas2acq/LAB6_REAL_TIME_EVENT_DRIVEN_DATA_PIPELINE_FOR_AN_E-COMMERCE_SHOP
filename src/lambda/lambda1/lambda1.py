@@ -240,3 +240,6 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps('Lambda 1 execution complete.')
     }
+
+
+print("test")
