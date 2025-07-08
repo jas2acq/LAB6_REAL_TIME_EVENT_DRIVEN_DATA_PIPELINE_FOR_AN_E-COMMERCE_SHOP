@@ -31,30 +31,50 @@ jobs:
       with:
         python-version: '3.9'
 
-    # Deploy Lambda 1 (src/lambda/lambda1)
-    - name: Deploy Lambda 1
+    # Package Lambda 1
+    - name: Package Lambda 1
       run: |
         cd src/lambda/lambda1
         pip install -r requirements.txt -t .
         zip -r ../../../lambda1-deployment.zip .
         cd ../../../
+
+    # Upload Lambda 1 ZIP to S3
+    - name: Upload Lambda 1 ZIP to S3
+      run: |
+        aws s3 cp lambda1-deployment.zip s3://${{ secrets.PROJECT_BUCKET }}/scripts/lambda/lambda1-deployment.zip
+
+    # Update Lambda 1 code from S3
+    - name: Update Lambda 1 code from S3
+      run: |
         aws lambda update-function-code \
           --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
-          --zip-file fileb://lambda1-deployment.zip
+          --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
+          --s3-key scripts/lambda/lambda1-deployment.zip
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
           --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}"
 
-    # Deploy Lambda 2 (src/lambda/lambda2)
-    - name: Deploy Lambda 2
+    # Package Lambda 2
+    - name: Package Lambda 2
       run: |
         cd src/lambda/lambda2
         pip install -r requirements.txt -t .
         zip -r ../../../lambda2-deployment.zip .
         cd ../../../
+
+    # Upload Lambda 2 ZIP to S3
+    - name: Upload Lambda 2 ZIP to S3
+      run: |
+        aws s3 cp lambda2-deployment.zip s3://${{ secrets.PROJECT_BUCKET }}/scripts/lambda/lambda2-deployment.zip
+
+    # Update Lambda 2 code from S3
+    - name: Update Lambda 2 code from S3
+      run: |
         aws lambda update-function-code \
           --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
-          --zip-file fileb://lambda2-deployment.zip
+          --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
+          --s3-key scripts/lambda/lambda2-deployment.zip
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
-          --environment "Variables={STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}"
+          --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}"
