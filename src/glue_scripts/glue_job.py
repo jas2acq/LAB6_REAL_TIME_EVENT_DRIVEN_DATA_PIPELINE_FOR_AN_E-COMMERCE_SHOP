@@ -6,6 +6,8 @@ import pandas as pd
 from datetime import datetime
 import uuid
 from botocore.exceptions import ClientError
+import sys
+from awsglue.utils import getResolvedOptions
 
 # --- AWS Clients ---
 s3_client = boto3.client('s3')
@@ -296,16 +298,14 @@ def main(event):
 
     write_s3_logs()
 
-# if __name__ == "__main__":
-#     import sys
-#     # Glue Python Shell jobs receive event JSON string as first argument
-#     if len(sys.argv) > 1:
-#         try:
-#             event = json.loads(sys.argv[1])
-#         except Exception as e:
-#             custom_logger(f"Failed to parse event JSON argument: {e}", level="ERROR")
-#             event = {}
-#     else:
-#         event = {}
+if __name__ == "__main__":
+    try:
+        # Use Glue utility to get the event_json argument
+        args = getResolvedOptions(sys.argv, ['event_json'])
+        event = json.loads(args['event_json'])
+    except Exception as e:
+        custom_logger(f"Failed to parse event JSON argument: {e}", level="ERROR")
+        event = {}
 
-#     main(event)
+    main(event)
+
