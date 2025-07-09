@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/deploy_glue_scripts.yaml'
       - 'src/glue_scripts/**'   # Adjust path to your Glue scripts folder
   workflow_dispatch:
 
