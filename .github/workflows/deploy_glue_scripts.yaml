@@ -26,6 +26,16 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
+        
+
+    - name: Upload Glue Script to S3
+      run: |
+        echo "Uploading src/glue_scripts/glue_job.py to ${{ env.GLUE_SCRIPT_S3_PATH }}"
+        aws s3 cp src/glue_scripts/glue_job.py ${{ env.GLUE_SCRIPT_S3_PATH }}
+      env:
+        # Use env variable for consistency and readability
+        PROJECT_BUCKET: ${{ secrets.PROJECT_BUCKET }} 
+
 
     - name: Deploy Glue Python Shell Job
       run: |
