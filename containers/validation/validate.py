@@ -1,11 +1,7 @@
 """
 ECS Validation Task for E-Commerce Data Pipeline
 
-<<<<<<< HEAD
-- Loads a Step Function trigger file from S3 describing a batch of order groups and their Parquet files.
-=======
 - Loads all Step Function trigger files from S3 describing batches of order groups and their Parquet files.
->>>>>>> dev
 - Validates schema, required fields, business logic, and unique key constraints for each file.
 - Tracks validated files in a state file in S3.
 - Logs all actions and errors to both stdout and S3.
@@ -29,11 +25,7 @@ from typing import Tuple, List, Dict, Any, Optional
 PROJECT_BUCKET = "lab-6-project"
 LOGS_DATA_PREFIX = "logs/"
 STATE_DATA_PREFIX = "state/"
-<<<<<<< HEAD
-TRIGGER_FILE_S3_PATH = "s3://lab-6-project/state/step_function_trigger_12345.json"
-=======
 TRIGGER_FILE_PREFIX = "step_function_trigger_"
->>>>>>> dev
 STATE_FILE_KEY = f"{STATE_DATA_PREFIX}validated_files_state.json"
 
 EXPECTED_SCHEMAS = {
@@ -272,81 +264,6 @@ def validate_file(s3_path: str, file_type: str, order_id: str) -> Tuple[bool, Li
     log_and_buffer("info", f"File {s3_path} passed validation")
     return True, []
 
-<<<<<<< HEAD
-def main() -> None:
-    """
-    Main validation workflow:
-    - Loads trigger file and state file from S3
-    - Validates each referenced Parquet file
-    - Updates state file and logs results to S3
-    """
-    log_and_buffer("info", "Starting validation job")
-    batch_id: str = "unknown"
-    try:
-        trigger_data = load_json_from_s3(TRIGGER_FILE_S3_PATH)
-        log_and_buffer("info", f"Loaded trigger file from {TRIGGER_FILE_S3_PATH}")
-        batch_id = trigger_data.get("batch_id", f"batch_{uuid4()}")
-    except Exception as e:
-        log_and_buffer("error", f"Failed to load trigger file: {e}")
-        upload_logs_to_s3(batch_id)
-        return
-
-    try:
-        state = load_state_file()
-        validated_files = set(state.get("validated_files", []))
-    except Exception as e:
-        log_and_buffer("error", f"Failed to load state file: {e}")
-        validated_files = set()
-
-    overall_status = "SUCCESS"
-    validation_results: List[Dict[str, Any]] = []
-
-    for group in trigger_data.get("groups", []):
-        order_id = group.get("order_id", f"order_{uuid4()}")
-        group_status = "SUCCESS"
-        group_issues: List[str] = []
-        for file_info in group.get("files", []):
-            s3_path = file_info.get("path")
-            file_type = file_info.get("type")
-            if not s3_path or not file_type:
-                log_and_buffer("warning", f"Skipping invalid file info: {file_info}")
-                continue
-            if s3_path in validated_files:
-                log_and_buffer("info", f"Skipping already validated file: {s3_path}")
-                continue
-            try:
-                valid, issues = validate_file(s3_path, file_type, order_id)
-                if not valid:
-                    group_status = "FAILURE"
-                    overall_status = "FAILURE"
-                    group_issues.extend(issues)
-                else:
-                    validated_files.add(s3_path)
-            except Exception as e:
-                group_status = "FAILURE"
-                overall_status = "FAILURE"
-                group_issues.append(f"Exception during validation: {e}")
-                log_and_buffer("error", f"Exception during validation of {s3_path}: {e}")
-        validation_results.append({
-            "order_id": order_id,
-            "status": group_status,
-            "issues": group_issues if group_issues else None
-        })
-
-    try:
-        update_state_file(list(validated_files))
-    except Exception as e:
-        log_and_buffer("error", f"Failed to update state file: {e}")
-
-    log_and_buffer("info", f"Validation batch {batch_id} completed with status: {overall_status}")
-    for result in validation_results:
-        log_and_buffer("info", f"Order {result['order_id']} validation status: {result['status']}")
-        if result['issues']:
-            for issue in result['issues']:
-                log_and_buffer("error", f"Issue: {issue}")
-
-    upload_logs_to_s3(batch_id)
-=======
 def get_all_trigger_files(bucket: str, prefix: str) -> List[str]:
     """
     List all trigger files in the given S3 bucket/prefix.
@@ -443,7 +360,6 @@ def main() -> None:
                     log_and_buffer("error", f"Issue: {issue}")
 
         upload_logs_to_s3(batch_id)
->>>>>>> dev
 
 if __name__ == "__main__":
     main()
