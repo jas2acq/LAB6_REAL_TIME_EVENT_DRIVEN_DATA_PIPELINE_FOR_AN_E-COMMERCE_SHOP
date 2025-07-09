@@ -8,9 +8,9 @@
 # - Entry point uses spark-submit for PySpark
 # -----------------------------------------------------------
 
-# Use official Spark 3.4.1 image with Hadoop 3.3
+# Use official Spark image with Hadoop 3.3
 
-FROM apache/spark-py:v3.4.1-hadoop3
+FROM apache/spark-py
 
 
 # Add required Hadoop AWS JARs for S3 access
