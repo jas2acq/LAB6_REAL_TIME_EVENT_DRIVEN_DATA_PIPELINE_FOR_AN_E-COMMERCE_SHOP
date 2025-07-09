@@ -21,6 +21,8 @@ from pyspark.sql.functions import col, to_date, sum as spark_sum, avg, countDist
 from pyspark.sql.types import DateType
 import sys
 import time
+from delta import configure_spark_with_delta_pip
+
 
 # --- Configuration Variables ---
 PROJECT_BUCKET = "lab-6-project"
@@ -330,13 +332,13 @@ def main():
     batch_id = f"batch_{uuid4()}"
 
     try:
-        spark = SparkSession.builder.appName("ECS-Transformation") \
+        builder = SparkSession.builder.appName("ECS-Transformation") \
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
             .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.EnvironmentVariableCredentialsProvider") \
-            .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com") \
-            .getOrCreate()
+            .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com")
 
-        log_and_buffer("info", "Spark session started.")
+        spark = configure_spark_with_delta_pip(builder).getOrCreate()
+        log_and_buffer("info", "Spark session started with Delta Lake support.")
     except Exception as e:
         log_and_buffer("error", f"Failed to start Spark session: {e}")
         upload_logs_to_s3(batch_id)

@@ -7,6 +7,9 @@ USER root
 ADD https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar /opt/spark/jars/
 ADD https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.698/aws-java-sdk-bundle-1.12.698.jar /opt/spark/jars/
 
+# Add Delta Lake core JAR (adjust version as needed)
+ADD https://repo1.maven.org/maven2/io/delta/delta-core_2.12/2.3.0/delta-core_2.12-2.3.0.jar /opt/spark/jars/
+
 # Set working directory
 WORKDIR /app
 
