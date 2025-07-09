@@ -1,23 +1,9 @@
-# -----------------------------------------------------------
-# PySpark ECS Transformation Dockerfile
-# -----------------------------------------------------------
-# - Uses official Spark image for full Spark support
-# - Installs boto3 for DynamoDB and S3 access
-# - Adds Hadoop AWS JARs for S3 connectivity
-# - Copies your transformation script and requirements
-# - Entry point uses spark-submit for PySpark
-# -----------------------------------------------------------
-
-# Use official Spark image with Hadoop 3.3
-
 FROM apache/spark-py
 
 
-# Switch to root for package installations
 USER root
 
-
-# Add required Hadoop AWS JARs for S3 access
+# Add Hadoop AWS and AWS SDK JARs for S3 support
 ADD https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar /opt/spark/jars/
 ADD https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.698/aws-java-sdk-bundle-1.12.698.jar /opt/spark/jars/
 
