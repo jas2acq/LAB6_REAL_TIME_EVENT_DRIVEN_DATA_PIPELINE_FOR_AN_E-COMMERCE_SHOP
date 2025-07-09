@@ -49,7 +49,7 @@ jobs:
               "--enable-glue-datacatalog": "true"
             },
             "MaxRetries": 1,
-            "GlueVersion": "2.0",
+            "GlueVersion": "4.0",
             "MaxCapacity": 0.0625,
             "Timeout": 2880,
             "Description": "Python Shell Glue job for lab6"
@@ -62,7 +62,7 @@ jobs:
             --command Name=pythonshell,ScriptLocation=$SCRIPT_LOCATION,PythonVersion=3 \
             --default-arguments '{"--job-language":"python","--enable-continuous-cloudwatch-log":"true","--enable-glue-datacatalog":"true"}' \
             --max-retries 1 \
-            --glue-version 2.0 \
+            --glue-version 4.0 \
             --max-capacity 0.0625 \
             --timeout 2880 \
             --description "Python Shell Glue job for lab6" \
