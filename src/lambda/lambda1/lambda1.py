@@ -47,4 +47,3 @@ def lambda_handler(event, context):
         logger.error(f"Failed to start Glue job: {e}", exc_info=True)
         raise e
 
-print("hi")
