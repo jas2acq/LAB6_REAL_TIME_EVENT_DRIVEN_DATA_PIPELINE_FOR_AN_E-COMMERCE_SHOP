@@ -28,7 +28,7 @@ jobs:
 
     - name: Deploy Glue Python Shell Job
       run: |
-        JOB_NAME="lab6-glue-python-shell-job"  # Your Glue job name
+        JOB_NAME="lab6-glue-job"  # Your Glue job name
         SCRIPT_LOCATION="s3://${{ secrets.PROJECT_BUCKET }}/scripts/glue_scripts/glue_job.py"
 
         # Check if job exists
