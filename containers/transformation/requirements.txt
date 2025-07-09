@@ -2,3 +2,4 @@ pyspark
 boto3
 pyarrow
 pandas
+delta-spark
