@@ -3,13 +3,13 @@ name: Build and Push  Images to ECR
 on:
   push:
     branches:
-      - main
+      - dev
     paths: 
       - 'containers/**'
   workflow_dispatch:
   pull_request:
     branches:
-      - main
+      - dev
     paths: 
       - 'containers/**'
   workflow_dispatch:
