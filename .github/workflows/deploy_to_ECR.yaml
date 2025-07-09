@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/workflows/deploy_to_ECR.yaml' 
       - 'containers/**'
-  workflow_dispatch:
+
   pull_request:
     branches:
       - main
