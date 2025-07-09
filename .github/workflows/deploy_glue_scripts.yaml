@@ -31,7 +31,7 @@ jobs:
       run: |
         JOB_NAME="lab6-glue-job"  # Your Glue job name
         SCRIPT_LOCATION="s3://${{ secrets.PROJECT_BUCKET }}/scripts/glue_scripts/glue_job.py"
-        ROLE_ARN="arn:aws:iam::476114131873:role/GlueJobRole"
+        ROLE_ARN="arn:aws:iam::476114131873:role/p2-full-glue-role"
 
         # Check if job exists
         if aws glue get-job --job-name $JOB_NAME --region ${{ secrets.AWS_REGION }}; then
