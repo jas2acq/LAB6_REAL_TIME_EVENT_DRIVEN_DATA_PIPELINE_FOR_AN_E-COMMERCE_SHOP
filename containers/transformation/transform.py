@@ -332,9 +332,10 @@ def main():
     try:
         spark = SparkSession.builder.appName("ECS-Transformation") \
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-            .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.EnvironmentVariableCredentialsProvider") \
+            .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.InstanceProfileCredentialsProvider") \
             .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com") \
             .getOrCreate()
+
         log_and_buffer("info", "Spark session started.")
     except Exception as e:
         log_and_buffer("error", f"Failed to start Spark session: {e}")
