@@ -5,6 +5,9 @@ ECS Transformation Task for E-Commerce Data Pipeline
 - Only processes files that are validated (per validated_files_state.json) and not yet transformed (per transformed_files_state.json).
 - Tracks transformed files in a state file in S3.
 - Logs all actions and errors to both stdout and S3.
+- Performs data integration and KPI computations.
+- Stores KPIs in Delta Lake with upsert semantics.
+- Pushes KPIs to DynamoDB with batch writes and retries.
 """
 
 import json
@@ -13,8 +16,11 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 from botocore.exceptions import ClientError
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql.functions import col, to_date, sum as spark_sum, avg, countDistinct, count, when
+from pyspark.sql.types import DateType
 import sys
+import time
 
 # --- Configuration Variables ---
 PROJECT_BUCKET = "lab-6-project"
@@ -24,8 +30,17 @@ TRIGGER_FILE_PREFIX = "step_function_trigger_"
 VALIDATED_STATE_KEY = f"{STATE_DATA_PREFIX}validated_files_state.json"
 TRANSFORMED_STATE_KEY = f"{STATE_DATA_PREFIX}transformed_files_state.json"
 
+DELTA_CATEGORY_KPIS_PATH = f"s3a://{PROJECT_BUCKET}/delta/category_kpis/"
+DELTA_ORDER_KPIS_PATH = f"s3a://{PROJECT_BUCKET}/delta/order_kpis_daily/"
+
+DYNAMODB_CATEGORY_TABLE = "ecom_category_kpis"
+DYNAMODB_ORDER_TABLE = "ecom_order_kpis_daily"
+
 # --- AWS Clients ---
 s3_client = boto3.client("s3")
+dynamodb = boto3.resource('dynamodb')
+category_kpi_table = dynamodb.Table(DYNAMODB_CATEGORY_TABLE)
+order_kpi_table = dynamodb.Table(DYNAMODB_ORDER_TABLE)
 
 # --- Logging Setup ---
 logger = logging.getLogger("transformation")
@@ -36,27 +51,13 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-# In-memory buffer to accumulate logs before uploading to S3
 s3_log_buffer = []
 
 def log_and_buffer(level: str, message: str) -> None:
-    """
-    Logs a message to console and buffers it for later upload to S3.
-
-    Args:
-        level (str): Logging level ('info', 'warning', 'error', etc.)
-        message (str): Message to log
-    """
     getattr(logger, level)(message)
     s3_log_buffer.append(f"[{datetime.now().isoformat()}] [{level.upper()}] {message}")
 
 def upload_logs_to_s3(batch_id: str) -> None:
-    """
-    Uploads accumulated logs to S3 under a timestamped key.
-
-    Args:
-        batch_id (str): Identifier for the current batch/job
-    """
     if not s3_log_buffer:
         return
     log_key = f"{LOGS_DATA_PREFIX}transformation/{datetime.now().strftime('%Y/%m/%d')}/{batch_id}-{uuid4()}.log"
@@ -71,15 +72,6 @@ def upload_logs_to_s3(batch_id: str) -> None:
         logger.error(f"Failed to write logs to S3: {e}")
 
 def parse_s3_path(s3_path: str) -> tuple:
-    """
-    Parses an S3 URI into bucket and key components.
-
-    Args:
-        s3_path (str): S3 URI (e.g., 's3://bucket/key')
-
-    Returns:
-        tuple: (bucket, key)
-    """
     if not s3_path.startswith("s3://"):
         raise ValueError(f"Invalid S3 path: {s3_path}")
     path = s3_path[5:]
@@ -87,16 +79,6 @@ def parse_s3_path(s3_path: str) -> tuple:
     return bucket, key
 
 def get_all_trigger_files(bucket: str, prefix: str) -> list:
-    """
-    Lists all Step Function trigger JSON files in the specified S3 bucket and prefix.
-
-    Args:
-        bucket (str): S3 bucket name
-        prefix (str): S3 prefix to search under
-
-    Returns:
-        list: List of full S3 URIs to trigger files
-    """
     trigger_files = []
     paginator = s3_client.get_paginator('list_objects_v2')
     try:
@@ -110,12 +92,6 @@ def get_all_trigger_files(bucket: str, prefix: str) -> list:
     return trigger_files
 
 def get_validated_files() -> set:
-    """
-    Loads the validated files state from S3.
-
-    Returns:
-        set: Set of validated file S3 paths
-    """
     try:
         obj = s3_client.get_object(Bucket=PROJECT_BUCKET, Key=VALIDATED_STATE_KEY)
         state = json.loads(obj["Body"].read())
@@ -128,12 +104,6 @@ def get_validated_files() -> set:
         return set()
 
 def get_transformed_files() -> set:
-    """
-    Loads the transformed files state from S3.
-
-    Returns:
-        set: Set of transformed file S3 paths
-    """
     try:
         obj = s3_client.get_object(Bucket=PROJECT_BUCKET, Key=TRANSFORMED_STATE_KEY)
         state = json.loads(obj["Body"].read())
@@ -146,12 +116,6 @@ def get_transformed_files() -> set:
         return set()
 
 def update_transformed_files(files_set: set) -> None:
-    """
-    Updates the transformed files state file in S3.
-
-    Args:
-        files_set (set): Set of transformed file S3 paths
-    """
     try:
         s3_client.put_object(
             Bucket=PROJECT_BUCKET,
@@ -163,15 +127,6 @@ def update_transformed_files(files_set: set) -> None:
         log_and_buffer("error", f"Failed to update transformed state file: {e}")
 
 def load_json_from_s3(s3_path: str) -> dict:
-    """
-    Loads a JSON file from S3.
-
-    Args:
-        s3_path (str): Full S3 URI to the JSON file
-
-    Returns:
-        dict: Parsed JSON content
-    """
     bucket, key = parse_s3_path(s3_path)
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
@@ -181,16 +136,199 @@ def load_json_from_s3(s3_path: str) -> dict:
         log_and_buffer("error", f"Failed to load JSON from {s3_path}: {e}")
         raise
 
+def batch_write_to_dynamodb(table, items, max_batch_size=25, max_retries=3):
+    """
+    Batch write items to DynamoDB with retries.
+
+    Args:
+        table: DynamoDB Table resource
+        items: List of dict items to write
+        max_batch_size: Max items per batch (DynamoDB limit is 25)
+        max_retries: Number of retries for unprocessed items
+    """
+    from botocore.exceptions import ClientError
+    import time
+
+    def chunks(lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    for batch in chunks(items, max_batch_size):
+        retries = 0
+        unprocessed = batch
+        while unprocessed and retries <= max_retries:
+            try:
+                with table.batch_writer() as batch_writer:
+                    for item in unprocessed:
+                        batch_writer.put_item(Item=item)
+                unprocessed = []
+            except ClientError as e:
+                log_and_buffer("warning", f"DynamoDB batch write error: {e}, retrying...")
+                retries += 1
+                time.sleep(2 ** retries)
+        if unprocessed:
+            log_and_buffer("error", f"Failed to write some items to DynamoDB after {max_retries} retries.")
+
+def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> set:
+    """
+    Perform the transformation and KPI computation on validated files.
+
+    Args:
+        spark: SparkSession object
+        files_to_transform: Set of S3 paths to transform
+
+    Returns:
+        Set of successfully transformed file paths
+    """
+    transformed_successfully = set()
+
+    # Separate files by type
+    orders_files = [f for f in files_to_transform if '/orders/' in f]
+    order_items_files = [f for f in files_to_transform if '/order_items/' in f]
+    products_files = [f for f in files_to_transform if '/products/' in f]
+
+    # Load DataFrames
+    def load_parquet_files(file_list):
+        if not file_list:
+            return None
+        spark_paths = [f.replace("s3://", "s3a://") for f in file_list]
+        return spark.read.parquet(*spark_paths)
+
+    try:
+        orders_df = load_parquet_files(orders_files)
+        order_items_df = load_parquet_files(order_items_files)
+        products_df = load_parquet_files(products_files)
+    except Exception as e:
+        log_and_buffer("error", f"Error loading parquet files: {e}")
+        return transformed_successfully
+
+    if orders_df is None or order_items_df is None or products_df is None:
+        log_and_buffer("error", "One or more datasets are missing; skipping transformation.")
+        return transformed_successfully
+
+    # Prepare dates
+    orders_df = orders_df.withColumn("order_date", to_date(col("created_at")))
+    order_items_df = order_items_df.withColumn("order_date", to_date(col("created_at")))
+    products_df = products_df  # No date needed
+
+    # Join data
+    try:
+        joined_df = orders_df.alias("o") \
+            .join(order_items_df.alias("oi"), col("o.order_id") == col("oi.order_id"), "inner") \
+            .join(products_df.alias("p"), col("oi.product_id") == col("p.id"), "inner") \
+            .select(
+                col("o.order_id"),
+                col("o.user_id"),
+                col("o.status"),
+                col("o.order_date"),
+                col("oi.sale_price"),
+                col("oi.product_id"),
+                col("p.category"),
+                col("oi.returned_at")
+            )
+    except Exception as e:
+        log_and_buffer("error", f"Error joining dataframes: {e}")
+        return transformed_successfully
+
+    # Compute Category-Level KPIs
+    try:
+        category_kpis = joined_df.groupBy("category", "order_date").agg(
+            spark_sum("sale_price").alias("daily_revenue"),
+            avg("sale_price").alias("avg_order_value"),
+            (spark_sum(when(col("returned_at").isNotNull(), 1).otherwise(0)) / count("order_id")).alias("avg_return_rate")
+        )
+    except Exception as e:
+        log_and_buffer("error", f"Error computing category-level KPIs: {e}")
+        return transformed_successfully
+
+    # Compute Order-Level KPIs
+    try:
+        order_kpis = joined_df.groupBy("order_date").agg(
+            countDistinct("order_id").alias("total_orders"),
+            spark_sum("sale_price").alias("total_revenue"),
+            count("product_id").alias("total_items_sold"),
+            (spark_sum(when(col("returned_at").isNotNull(), 1).otherwise(0)) / countDistinct("order_id")).alias("return_rate"),
+            countDistinct("user_id").alias("unique_customers")
+        )
+    except Exception as e:
+        log_and_buffer("error", f"Error computing order-level KPIs: {e}")
+        return transformed_successfully
+
+    # Write KPIs to Delta Lake with upsert (MERGE)
+    try:
+        from delta.tables import DeltaTable
+
+        # Category KPIs upsert
+        if DeltaTable.isDeltaTable(spark, DELTA_CATEGORY_KPIS_PATH):
+            delta_cat = DeltaTable.forPath(spark, DELTA_CATEGORY_KPIS_PATH)
+            delta_cat.alias("target").merge(
+                category_kpis.alias("source"),
+                "target.category = source.category AND target.order_date = source.order_date"
+            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        else:
+            category_kpis.write.format("delta").partitionBy("order_date").save(DELTA_CATEGORY_KPIS_PATH)
+
+        # Order KPIs upsert
+        if DeltaTable.isDeltaTable(spark, DELTA_ORDER_KPIS_PATH):
+            delta_ord = DeltaTable.forPath(spark, DELTA_ORDER_KPIS_PATH)
+            delta_ord.alias("target").merge(
+                order_kpis.alias("source"),
+                "target.order_date = source.order_date"
+            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        else:
+            order_kpis.write.format("delta").partitionBy("order_date").save(DELTA_ORDER_KPIS_PATH)
+
+        log_and_buffer("info", "KPIs written/upserted to Delta Lake.")
+
+    except Exception as e:
+        log_and_buffer("error", f"Error writing KPIs to Delta Lake: {e}")
+        return transformed_successfully
+
+    # Push KPIs to DynamoDB
+    try:
+        # Collect category KPIs as dicts
+        cat_kpi_items = category_kpis.collect()
+        cat_items_to_write = []
+        for row in cat_kpi_items:
+            cat_items_to_write.append({
+                "category": row["category"],
+                "order_date": row["order_date"].strftime("%Y-%m-%d"),
+                "daily_revenue": float(row["daily_revenue"]),
+                "avg_order_value": float(row["avg_order_value"]),
+                "avg_return_rate": float(row["avg_return_rate"])
+            })
+
+        batch_write_to_dynamodb(category_kpi_table, cat_items_to_write)
+
+        # Collect order KPIs as dicts
+        ord_kpi_items = order_kpis.collect()
+        ord_items_to_write = []
+        for row in ord_kpi_items:
+            ord_items_to_write.append({
+                "order_date": row["order_date"].strftime("%Y-%m-%d"),
+                "total_orders": int(row["total_orders"]),
+                "total_revenue": float(row["total_revenue"]),
+                "total_items_sold": int(row["total_items_sold"]),
+                "return_rate": float(row["return_rate"]),
+                "unique_customers": int(row["unique_customers"])
+            })
+
+        batch_write_to_dynamodb(order_kpi_table, ord_items_to_write)
+
+        log_and_buffer("info", "KPIs pushed to DynamoDB.")
+
+    except Exception as e:
+        log_and_buffer("error", f"Error pushing KPIs to DynamoDB: {e}")
+        return transformed_successfully
+
+    # Mark all processed files as transformed
+    transformed_successfully.update(files_to_transform)
+    return transformed_successfully
+
 def main():
-    """
-    Main entry point for the transformation job.
-    Loads trigger files, filters files to transform, performs transformations,
-    updates state, and logs all actions.
-    """
     log_and_buffer("info", "Starting transformation job")
     batch_id = f"batch_{uuid4()}"
 
-    # Initialize Spark session with S3A support and AWS credentials provider
     try:
         spark = SparkSession.builder.appName("ECS-Transformation") \
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
@@ -203,7 +341,6 @@ def main():
         upload_logs_to_s3(batch_id)
         return
 
-    # Load validated and transformed files state
     try:
         validated_files = get_validated_files()
         transformed_files = get_transformed_files()
@@ -226,7 +363,8 @@ def main():
         upload_logs_to_s3(batch_id)
         return
 
-    # Process each trigger file
+    # Process each trigger file and transform
+    transformed_files_set = set()
     for trigger_file_path in trigger_files:
         try:
             trigger_data = load_json_from_s3(trigger_file_path)
@@ -236,47 +374,30 @@ def main():
             log_and_buffer("error", f"Failed to load/parse trigger file {trigger_file_path}: {e}")
             continue
 
-        # Process each group and its files
+        # Collect files in this trigger that need transformation
+        trigger_files_to_transform = set()
         for group in groups:
             for file_info in group.get("files", []):
                 s3_path = file_info.get("path")
-                file_type = file_info.get("type")
-                if not s3_path or not file_type:
-                    log_and_buffer("warning", f"Skipping invalid file info: {file_info}")
-                    continue
-                if s3_path not in files_to_transform:
-                    continue  # Skip files already transformed or not validated
+                if s3_path and s3_path in files_to_transform:
+                    trigger_files_to_transform.add(s3_path)
 
-                try:
-                    # Replace s3:// with s3a:// for Spark compatibility
-                    spark_s3_path = s3_path.replace("s3://", "s3a://")
+        if not trigger_files_to_transform:
+            log_and_buffer("info", f"No new files to transform in trigger {trigger_file_path}")
+            continue
 
-                    log_and_buffer("info", f"Transforming file: {spark_s3_path} (type: {file_type})")
+        # Perform transformation and KPI computation
+        transformed = transform_and_compute_kpis(spark, trigger_files_to_transform)
+        transformed_files_set.update(transformed)
 
-                    # Read Parquet file
-                    df = spark.read.parquet(spark_s3_path)
+    # Update transformed files state once after all triggers processed
+    if transformed_files_set:
+        try:
+            transformed_files.update(transformed_files_set)
+            update_transformed_files(transformed_files)
+        except Exception as e:
+            log_and_buffer("error", f"Failed to update transformed files state: {e}")
 
-                    # TODO: Add your transformation logic here
-                    # For demonstration, write to a 'transformed/' prefix in the same bucket
-                    transformed_key = s3_path.replace("/raw/", "/transformed/")
-                    if transformed_key == s3_path:
-                        transformed_key = s3_path.replace("/state/", "/transformed/")
-
-                    output_path = f"s3a://{PROJECT_BUCKET}/" + transformed_key.split(f"{PROJECT_BUCKET}/")[-1]
-
-                    # Write transformed data
-                    df.write.mode("overwrite").parquet(output_path)
-
-                    log_and_buffer("info", f"Transformed and wrote to {output_path}")
-
-                    # Update transformed files state
-                    transformed_files.add(s3_path)
-                    update_transformed_files(transformed_files)
-
-                except Exception as e:
-                    log_and_buffer("error", f"Failed to transform file {s3_path}: {e}")
-
-    # Upload logs to S3 after processing
     upload_logs_to_s3(batch_id)
 
 if __name__ == "__main__":
