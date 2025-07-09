@@ -30,12 +30,13 @@ jobs:
       run: |
         JOB_NAME="lab6-glue-job"  # Your Glue job name
         SCRIPT_LOCATION="s3://${{ secrets.PROJECT_BUCKET }}/scripts/glue_scripts/glue_job.py"
+        ROLE_ARN="arn:aws:iam::476114131873:role/GlueJobRole"
 
         # Check if job exists
         if aws glue get-job --job-name $JOB_NAME --region ${{ secrets.AWS_REGION }}; then
           echo "Updating existing Glue job $JOB_NAME"
           aws glue update-job --job-name $JOB_NAME --job-update '{
-            "Role": "arn:aws:iam::476114131873:role/GlueJobRole", 
+            "Role": "'"$ROLE_ARN"'",
             "Command": {
               "Name": "pythonshell",
               "ScriptLocation": "'"$SCRIPT_LOCATION"'",
@@ -43,15 +44,26 @@ jobs:
             },
             "DefaultArguments": {
               "--job-language": "python",
-              "--extra-py-files": "",
-              "--enable-continuous-cloudwatch-log": "true"
+              "--enable-continuous-cloudwatch-log": "true",
+              "--enable-glue-datacatalog": "true"
             },
             "MaxRetries": 1,
             "GlueVersion": "3.0",
-            "NumberOfWorkers": 2,
-            "WorkerType": "Standard"
+            "MaxCapacity": 0.0625,
+            "Timeout": 2880,
+            "Description": "Python Shell Glue job for lab6"
           }' --region ${{ secrets.AWS_REGION }}
         else
           echo "Creating Glue job $JOB_NAME"
-          aws glue create-job --name $JOB_NAME --role "arn:aws:iam::476114131873:role/GlueJobRole" --command "Name=pythonshell,ScriptLocation=$SCRIPT_LOCATION,PythonVersion=3" --default-arguments '{"--job-language":"python","--enable-continuous-cloudwatch-log":"true"}' --max-retries 1 --glue-version 3.0 --number-of-workers 2 --worker-type Standard --region ${{ secrets.AWS_REGION }}
+          aws glue create-job \
+            --name $JOB_NAME \
+            --role $ROLE_ARN \
+            --command Name=pythonshell,ScriptLocation=$SCRIPT_LOCATION,PythonVersion=3 \
+            --default-arguments '{"--job-language":"python","--enable-continuous-cloudwatch-log":"true","--enable-glue-datacatalog":"true"}' \
+            --max-retries 1 \
+            --glue-version 3.0 \
+            --max-capacity 0.0625 \
+            --timeout 2880 \
+            --description "Python Shell Glue job for lab6" \
+            --region ${{ secrets.AWS_REGION }}
         fi

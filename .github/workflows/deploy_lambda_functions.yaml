@@ -44,6 +44,11 @@ jobs:
       run: |
         aws s3 cp lambda1-deployment.zip s3://${{ secrets.PROJECT_BUCKET }}/scripts/lambda/lambda1-deployment.zip
 
+    # Wait for Lambda 1 to be ready before update
+    - name: Wait for Lambda 1 to be ready before update
+      run: |
+        aws lambda wait function-updated --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} --region ${{ secrets.AWS_REGION }}
+
     # Update Lambda 1 code from S3
     - name: Update Lambda 1 code from S3
       run: |
@@ -52,6 +57,15 @@ jobs:
           --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
           --s3-key scripts/lambda/lambda1-deployment.zip \
           --region ${{ secrets.AWS_REGION }}
+
+    # Wait for Lambda 1 code update to complete
+    - name: Wait for Lambda 1 code update to complete
+      run: |
+        aws lambda wait function-updated --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} --region ${{ secrets.AWS_REGION }}
+
+    # Update Lambda 1 configuration
+    - name: Update Lambda 1 configuration
+      run: |
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA1_FUNCTION_NAME }} \
           --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},RAW_DATA_PREFIX=raw/,STATE_DATA_PREFIX=state/,LOGS_DATA_PREFIX=logs/,SQS_QUEUE_URL=${{ secrets.SQS_QUEUE_URL }}}" \
@@ -70,6 +84,11 @@ jobs:
       run: |
         aws s3 cp lambda2-deployment.zip s3://${{ secrets.PROJECT_BUCKET }}/scripts/lambda/lambda2-deployment.zip
 
+    # Wait for Lambda 2 to be ready before update
+    - name: Wait for Lambda 2 to be ready before update
+      run: |
+        aws lambda wait function-updated --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} --region ${{ secrets.AWS_REGION }}
+
     # Update Lambda 2 code from S3
     - name: Update Lambda 2 code from S3
       run: |
@@ -78,6 +97,15 @@ jobs:
           --s3-bucket ${{ secrets.PROJECT_BUCKET }} \
           --s3-key scripts/lambda/lambda2-deployment.zip \
           --region ${{ secrets.AWS_REGION }}
+
+    # Wait for Lambda 2 code update to complete
+    - name: Wait for Lambda 2 code update to complete
+      run: |
+        aws lambda wait function-updated --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} --region ${{ secrets.AWS_REGION }}
+
+    # Update Lambda 2 configuration
+    - name: Update Lambda 2 configuration
+      run: |
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA2_FUNCTION_NAME }} \
           --environment "Variables={PROJECT_BUCKET=${{ secrets.PROJECT_BUCKET }},STEP_FUNCTIONS_ARN=${{ secrets.STEP_FUNCTIONS_ARN }}}" \

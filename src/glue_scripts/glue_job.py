@@ -296,16 +296,16 @@ def main(event):
 
     write_s3_logs()
 
-# if __name__ == "__main__":
-#     import sys
-#     # Glue Python Shell jobs receive event JSON string as first argument
-#     if len(sys.argv) > 1:
-#         try:
-#             event = json.loads(sys.argv[1])
-#         except Exception as e:
-#             custom_logger(f"Failed to parse event JSON argument: {e}", level="ERROR")
-#             event = {}
-#     else:
-#         event = {}
+if __name__ == "__main__":
+    import sys
+    # Glue Python Shell jobs receive event JSON string as first argument
+    if len(sys.argv) > 1:
+        try:
+            event = json.loads(sys.argv[1])
+        except Exception as e:
+            custom_logger(f"Failed to parse event JSON argument: {e}", level="ERROR")
+            event = {}
+    else:
+        event = {}
 
-#     main(event)
+    main(event)
