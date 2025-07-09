@@ -3,7 +3,7 @@ name: Deploy Glue Jobs
 on:
   push:
     branches:
-      - dev
+      - main
     paths:
       - 'src/glue_scripts/**'   # Adjust path to your Glue scripts folder
   workflow_dispatch:

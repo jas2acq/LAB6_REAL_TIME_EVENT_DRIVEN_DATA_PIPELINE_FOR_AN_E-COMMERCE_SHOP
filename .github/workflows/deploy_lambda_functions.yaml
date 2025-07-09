@@ -2,7 +2,7 @@ name: Deploy Lambda Functions
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ main ]
     paths: 
       - 'src/lambda/**'
   workflow_dispatch:
