@@ -1,4 +1,4 @@
+pyspark
 boto3
-pandas
 pyarrow
-botocore
+pandas
