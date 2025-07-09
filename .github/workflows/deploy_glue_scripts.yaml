@@ -30,8 +30,8 @@ jobs:
 
     - name: Upload Glue Script to S3
       run: |
-        echo "Uploading src/glue_scripts/glue_job.py to ${{ env.GLUE_SCRIPT_S3_PATH }}"
-        aws s3 cp src/glue_scripts/glue_job.py ${{ env.GLUE_SCRIPT_S3_PATH }}
+        echo "Uploading src/glue_scripts/glue_job.py to ${{ secrets.GLUE_SCRIPT_S3_PATH }}"
+        aws s3 cp src/glue_scripts/glue_job.py ${{ secrets.GLUE_SCRIPT_S3_PATH }}
       env:
         # Use env variable for consistency and readability
         PROJECT_BUCKET: ${{ secrets.PROJECT_BUCKET }} 
