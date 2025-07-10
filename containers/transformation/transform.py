@@ -332,11 +332,15 @@ def main():
     batch_id = f"batch_{uuid4()}"
 
     try:
+        # Configure Spark with Delta Lake extensions explicitly
         builder = SparkSession.builder.appName("ECS-Transformation") \
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
             .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.EnvironmentVariableCredentialsProvider") \
             .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com")
 
+        # Use configure_spark_with_delta_pip to add Delta packages
         spark = configure_spark_with_delta_pip(builder).getOrCreate()
         log_and_buffer("info", "Spark session started with Delta Lake support.")
     except Exception as e:
