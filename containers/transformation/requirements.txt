@@ -2,7 +2,4 @@ pyspark
 boto3
 pyarrow
 pandas
-<<<<<<< HEAD
-=======
 delta-spark
->>>>>>> dev
