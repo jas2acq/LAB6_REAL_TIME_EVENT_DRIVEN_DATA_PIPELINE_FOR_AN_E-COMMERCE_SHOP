@@ -1,0 +1,201 @@
+{
+  "Comment": "Production-ready E-commerce data pipeline with comprehensive error handling and notifications using shared SNS topic",
+  "StartAt": "ValidateData",
+  "States": {
+    "ValidateData": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "LaunchType": "FARGATE",
+        "Cluster": "lab6-ecs-cluster",
+        "TaskDefinition": "arn:aws:ecs:eu-north-1:476114131873:task-definition/lab6-task-validate:1",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-0c2ee6197d2996376",
+              "subnet-02801cbd3656da804",
+              "subnet-0dee619f379f0e2e6"
+            ],
+            "SecurityGroups": [
+              "sg-0a27e74197621e807"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "lab6-container",
+              "Environment": [
+                {
+                  "Name": "PRODUCTS_FILES",
+                  "Value.$": "States.JsonToString($.products_files)"
+                },
+                {
+                  "Name": "ORDERS_FILES",
+                  "Value.$": "States.JsonToString($.orders_files)"
+                },
+                {
+                  "Name": "ORDER_ITEMS_FILES",
+                  "Value.$": "States.JsonToString($.order_items_files)"
+                },
+                {
+                  "Name": "BATCH_ID",
+                  "Value.$": "$.batch_id"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "ResultPath": "$.validation_result",
+      "TimeoutSeconds": 1800,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 1
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyValidationFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckValidationStatus"
+    },
+    "CheckValidationStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.validation_result",
+          "IsPresent": true,
+          "Next": "TransformData"
+        }
+      ],
+      "Default": "NotifyValidationFailure"
+    },
+    "TransformData": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "LaunchType": "FARGATE",
+        "Cluster": "lab6-ecs-cluster",
+        "TaskDefinition": "arn:aws:ecs:eu-north-1:476114131873:task-definition/lab6-task-transform:2",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-0c2ee6197d2996376",
+              "subnet-02801cbd3656da804",
+              "subnet-0dee619f379f0e2e6"
+            ],
+            "SecurityGroups": [
+              "sg-0a27e74197621e807"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "lab6-container-transform",
+              "Environment": [
+                {
+                  "Name": "BATCH_ID",
+                  "Value.$": "$.batch_id"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "ResultPath": "$.transformation_result",
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 1
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyTransformationFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "NotifyPipelineSuccess"
+    },
+    "NotifyValidationFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-north-1:476114131873:Lab_5",
+        "Subject": "E-commerce Pipeline: Validation Failed",
+        "Message": "VALIDATION FAILURE\n\nError Details:\nValidation failed during data processing.\n\nPlease check CloudWatch logs for detailed information."
+      },
+      "Next": "FailValidation"
+    },
+    "NotifyTransformationFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-north-1:476114131873:Lab_5",
+        "Subject": "E-commerce Pipeline: Transformation Failed",
+        "Message": "TRANSFORMATION FAILURE\n\nValidation was successful, but transformation failed.\n\nPlease check CloudWatch logs and DynamoDB for detailed information."
+      },
+      "Next": "FailTransformation"
+    },
+    "NotifyPipelineSuccess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-north-1:476114131873:Lab_5",
+        "Subject": "E-commerce Pipeline: Processing Complete",
+        "Message": "PIPELINE SUCCESS\n\nProcessing Summary:\n• Validation: Completed\n• Transformation: Completed\n• KPIs stored in DynamoDB\n\nPipeline completed successfully."
+      },
+      "Next": "PipelineSuccess"
+    },
+    "FailValidation": {
+      "Type": "Fail",
+      "Cause": "Validation failed",
+      "Error": "ValidationError"
+    },
+    "FailTransformation": {
+      "Type": "Fail",
+      "Cause": "Transformation failed",
+      "Error": "TransformationError"
+    },
+    "PipelineSuccess": {
+      "Type": "Succeed",
+      "Comment": "Data pipeline completed successfully with notifications sent"
+    }
+  }
+}

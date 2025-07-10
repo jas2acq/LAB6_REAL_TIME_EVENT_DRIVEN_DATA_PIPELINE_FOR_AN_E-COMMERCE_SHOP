@@ -1,0 +1,47 @@
+name: Deploy Step Functions
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'src/stepfunctions/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  deploy-step-functions:
+    name: Deploy Step Functions State Machine
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update Step Functions State Machine
+      run: |
+        # Replace placeholders in the definition file
+        sed -i 's/subnet-YOUR_SUBNET_1/${{ secrets.SUBNET_1 }}/g' src/stepfunctions/stepfunction.json
+        sed -i 's/subnet-YOUR_SUBNET_2/${{ secrets.SUBNET_2 }}/g' src/stepfunctions/stepfunction.json
+        sed -i 's/subnet-YOUR_SUBNET_3/${{ secrets.SUBNET_3 }}/g' src/stepfunctions/stepfunction.json
+        sed -i 's/sg-YOUR_SECURITY_GROUP/${{ secrets.SECURITY_GROUP }}/g' src/stepfunctions/stepfunction.json
+        
+        # Update the state machine
+        aws stepfunctions update-state-machine \
+          --state-machine-arn ${{ secrets.STEP_FUNCTIONS_ARN }} \
+          --definition file://src/stepfunctions/stepfunction.json
+
+    - name: Validate Step Functions deployment
+      run: |
+        aws stepfunctions describe-state-machine \
+          --state-machine-arn ${{ secrets.STEP_FUNCTIONS_ARN }} \
+          --query 'status' \
+          --output text
