@@ -4,8 +4,8 @@
 This project implements a real-time, event-driven data pipeline for an e-commerce platform using AWS-native services. It processes transactional data (orders, products) arriving as flat files in an Amazon S3 bucket, validates and transforms the data into business KPIs, and stores the results in Amazon DynamoDB for real-time querying.
 
 ## Architecture
-![Architecture Diagram](imgs/lab6_architecture.png)
-![Step Functions Workflow](imgs/stepfunctions_graph (3).png)
+![Architecture Diagram](imgs/lab6_architecture.svg)
+![Step Functions Workflow](imgs/stepfunctions_graph.svg)
 
 The architecture follows a flowchart schema representing an AWS cloud-based network pipeline. It includes:
 - **Data Source**: User-uploaded flat files to an S3 bucket.
