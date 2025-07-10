@@ -22,6 +22,9 @@ from pyspark.sql.types import DateType
 import sys
 import time
 from delta import configure_spark_with_delta_pip
+from decimal import Decimal
+from delta.tables import DeltaTable
+
 
 
 # --- Configuration Variables ---
@@ -171,16 +174,24 @@ def batch_write_to_dynamodb(table, items, max_batch_size=25, max_retries=3):
         if unprocessed:
             log_and_buffer("error", f"Failed to write some items to DynamoDB after {max_retries} retries.")
 
+
 def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> set:
     """
     Perform the transformation and KPI computation on validated files.
 
+    Steps:
+    - Load orders, order_items, and products parquet datasets from S3.
+    - Join datasets to create enriched order-level data.
+    - Write the transformed joined data as Delta Lake table representing the delta.
+    - Compute category-level and order-level KPIs.
+    - Push KPIs to DynamoDB using batch writes with retries.
+
     Args:
-        spark: SparkSession object
-        files_to_transform: Set of S3 paths to transform
+        spark (SparkSession): SparkSession object with Delta Lake support.
+        files_to_transform (set): Set of S3 paths to transform.
 
     Returns:
-        Set of successfully transformed file paths
+        set: Set of successfully transformed file paths.
     """
     transformed_successfully = set()
 
@@ -189,7 +200,7 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
     order_items_files = [f for f in files_to_transform if '/order_items/' in f]
     products_files = [f for f in files_to_transform if '/products/' in f]
 
-    # Load DataFrames
+    # Helper to load parquet files from S3 paths
     def load_parquet_files(file_list):
         if not file_list:
             return None
@@ -208,12 +219,12 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
         log_and_buffer("error", "One or more datasets are missing; skipping transformation.")
         return transformed_successfully
 
-    # Prepare dates
+    # Prepare date columns
     orders_df = orders_df.withColumn("order_date", to_date(col("created_at")))
     order_items_df = order_items_df.withColumn("order_date", to_date(col("created_at")))
-    products_df = products_df  # No date needed
+    # products_df does not require date column
 
-    # Join data
+    # Join datasets to create enriched order data
     try:
         joined_df = orders_df.alias("o") \
             .join(order_items_df.alias("oi"), col("o.order_id") == col("oi.order_id"), "inner") \
@@ -230,6 +241,24 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
             )
     except Exception as e:
         log_and_buffer("error", f"Error joining dataframes: {e}")
+        return transformed_successfully
+
+    # Write transformed joined data as Delta Lake (delta)
+    DELTA_TRANSFORMED_PATH = f"s3a://{PROJECT_BUCKET}/delta/transformed_orders/"
+    try:
+        if DeltaTable.isDeltaTable(spark, DELTA_TRANSFORMED_PATH):
+            delta_transformed = DeltaTable.forPath(spark, DELTA_TRANSFORMED_PATH)
+            delta_transformed.alias("target").merge(
+                joined_df.alias("source"),
+                "target.order_id = source.order_id AND target.product_id = source.product_id"
+            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        else:
+            # Initial write: overwrite mode with partition by order_date
+            joined_df.write.format("delta").mode("overwrite").partitionBy("order_date").save(DELTA_TRANSFORMED_PATH)
+
+        log_and_buffer("info", "Transformed data written/upserted to Delta Lake as delta.")
+    except Exception as e:
+        log_and_buffer("error", f"Error writing transformed data to Delta Lake: {e}")
         return transformed_successfully
 
     # Compute Category-Level KPIs
@@ -256,69 +285,38 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
         log_and_buffer("error", f"Error computing order-level KPIs: {e}")
         return transformed_successfully
 
-    # Write KPIs to Delta Lake with upsert (MERGE)
+    # Push KPIs to DynamoDB with Decimal conversion for numeric types
     try:
-        from delta.tables import DeltaTable
-
-        # Category KPIs upsert
-        if DeltaTable.isDeltaTable(spark, DELTA_CATEGORY_KPIS_PATH):
-            delta_cat = DeltaTable.forPath(spark, DELTA_CATEGORY_KPIS_PATH)
-            delta_cat.alias("target").merge(
-                category_kpis.alias("source"),
-                "target.category = source.category AND target.order_date = source.order_date"
-            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
-        else:
-            category_kpis.write.format("delta").partitionBy("order_date").save(DELTA_CATEGORY_KPIS_PATH)
-
-        # Order KPIs upsert
-        if DeltaTable.isDeltaTable(spark, DELTA_ORDER_KPIS_PATH):
-            delta_ord = DeltaTable.forPath(spark, DELTA_ORDER_KPIS_PATH)
-            delta_ord.alias("target").merge(
-                order_kpis.alias("source"),
-                "target.order_date = source.order_date"
-            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
-        else:
-            order_kpis.write.format("delta").partitionBy("order_date").save(DELTA_ORDER_KPIS_PATH)
-
-        log_and_buffer("info", "KPIs written/upserted to Delta Lake.")
-
-    except Exception as e:
-        log_and_buffer("error", f"Error writing KPIs to Delta Lake: {e}")
-        return transformed_successfully
-
-    # Push KPIs to DynamoDB
-    try:
-        # Collect category KPIs as dicts
+        # Category KPIs
         cat_kpi_items = category_kpis.collect()
         cat_items_to_write = []
         for row in cat_kpi_items:
             cat_items_to_write.append({
                 "category": row["category"],
                 "order_date": row["order_date"].strftime("%Y-%m-%d"),
-                "daily_revenue": float(row["daily_revenue"]),
-                "avg_order_value": float(row["avg_order_value"]),
-                "avg_return_rate": float(row["avg_return_rate"])
+                "daily_revenue": Decimal(str(row["daily_revenue"])) if row["daily_revenue"] is not None else Decimal('0'),
+                "avg_order_value": Decimal(str(row["avg_order_value"])) if row["avg_order_value"] is not None else Decimal('0'),
+                "avg_return_rate": Decimal(str(row["avg_return_rate"])) if row["avg_return_rate"] is not None else Decimal('0')
             })
 
         batch_write_to_dynamodb(category_kpi_table, cat_items_to_write)
 
-        # Collect order KPIs as dicts
+        # Order KPIs
         ord_kpi_items = order_kpis.collect()
         ord_items_to_write = []
         for row in ord_kpi_items:
             ord_items_to_write.append({
                 "order_date": row["order_date"].strftime("%Y-%m-%d"),
-                "total_orders": int(row["total_orders"]),
-                "total_revenue": float(row["total_revenue"]),
-                "total_items_sold": int(row["total_items_sold"]),
-                "return_rate": float(row["return_rate"]),
-                "unique_customers": int(row["unique_customers"])
+                "total_orders": int(row["total_orders"]) if row["total_orders"] is not None else 0,
+                "total_revenue": Decimal(str(row["total_revenue"])) if row["total_revenue"] is not None else Decimal('0'),
+                "total_items_sold": int(row["total_items_sold"]) if row["total_items_sold"] is not None else 0,
+                "return_rate": Decimal(str(row["return_rate"])) if row["return_rate"] is not None else Decimal('0'),
+                "unique_customers": int(row["unique_customers"]) if row["unique_customers"] is not None else 0
             })
 
         batch_write_to_dynamodb(order_kpi_table, ord_items_to_write)
 
         log_and_buffer("info", "KPIs pushed to DynamoDB.")
-
     except Exception as e:
         log_and_buffer("error", f"Error pushing KPIs to DynamoDB: {e}")
         return transformed_successfully
@@ -326,6 +324,7 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
     # Mark all processed files as transformed
     transformed_successfully.update(files_to_transform)
     return transformed_successfully
+
 
 def main():
     log_and_buffer("info", "Starting transformation job")
