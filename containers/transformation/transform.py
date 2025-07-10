@@ -107,6 +107,88 @@ def get_validated_files() -> set:
     except Exception as e:
         log_and_buffer("error", f"Error loading validated state file: {e}")
         return set()
+    
+
+def table_exists(table_name: str) -> bool:
+    """
+    Check if a DynamoDB table exists and is ACTIVE.
+    """
+    try:
+        response = dynamodb.meta.client.describe_table(TableName=table_name)
+        return response['Table']['TableStatus'] == 'ACTIVE'
+    except dynamodb.meta.client.exceptions.ResourceNotFoundException:
+        return False
+    except Exception as e:
+        log_and_buffer("error", f"Error checking table {table_name} existence: {e}")
+        return False
+
+
+def create_category_kpi_table():
+    """
+    Create DynamoDB category KPI table if it doesn't exist.
+    """
+    if table_exists(DYNAMODB_CATEGORY_TABLE):
+        log_and_buffer("info", f"Table {DYNAMODB_CATEGORY_TABLE} already exists.")
+        return
+
+    params = {
+        "TableName": DYNAMODB_CATEGORY_TABLE,
+        "KeySchema": [
+            {"AttributeName": "category", "KeyType": "HASH"},
+            {"AttributeName": "order_date", "KeyType": "RANGE"}
+        ],
+        "AttributeDefinitions": [
+            {"AttributeName": "category", "AttributeType": "S"},
+            {"AttributeName": "order_date", "AttributeType": "S"}
+        ],
+        "BillingMode": "PAY_PER_REQUEST"
+    }
+
+    try:
+        table = dynamodb.create_table(**params)
+        log_and_buffer("info", f"Creating table {DYNAMODB_CATEGORY_TABLE}...")
+        table.wait_until_exists()
+        log_and_buffer("info", f"Table {DYNAMODB_CATEGORY_TABLE} is now ACTIVE.")
+    except Exception as e:
+        log_and_buffer("error", f"Failed to create table {DYNAMODB_CATEGORY_TABLE}: {e}")
+
+
+def create_order_kpi_table():
+    """
+    Create DynamoDB order KPI table if it doesn't exist.
+    """
+    if table_exists(DYNAMODB_ORDER_TABLE):
+        log_and_buffer("info", f"Table {DYNAMODB_ORDER_TABLE} already exists.")
+        return
+
+    params = {
+        "TableName": DYNAMODB_ORDER_TABLE,
+        "KeySchema": [
+            {"AttributeName": "order_date", "KeyType": "HASH"}
+        ],
+        "AttributeDefinitions": [
+            {"AttributeName": "order_date", "AttributeType": "S"}
+        ],
+        "BillingMode": "PAY_PER_REQUEST"
+    }
+
+    try:
+        table = dynamodb.create_table(**params)
+        log_and_buffer("info", f"Creating table {DYNAMODB_ORDER_TABLE}...")
+        table.wait_until_exists()
+        log_and_buffer("info", f"Table {DYNAMODB_ORDER_TABLE} is now ACTIVE.")
+    except Exception as e:
+        log_and_buffer("error", f"Failed to create table {DYNAMODB_ORDER_TABLE}: {e}")
+
+
+def ensure_kpi_tables_exist():
+    """
+    Ensure both DynamoDB KPI tables exist.
+    """
+    create_category_kpi_table()
+    create_order_kpi_table()
+
+
 
 def get_transformed_files() -> set:
     try:
@@ -284,6 +366,9 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
     except Exception as e:
         log_and_buffer("error", f"Error computing order-level KPIs: {e}")
         return transformed_successfully
+    
+        # Ensure DynamoDB tables exist before pushing KPIs
+    ensure_kpi_tables_exist()
 
     # Push KPIs to DynamoDB with Decimal conversion for numeric types
     try:
@@ -320,10 +405,6 @@ def transform_and_compute_kpis(spark: SparkSession, files_to_transform: set) -> 
     except Exception as e:
         log_and_buffer("error", f"Error pushing KPIs to DynamoDB: {e}")
         return transformed_successfully
-
-    # Mark all processed files as transformed
-    transformed_successfully.update(files_to_transform)
-    return transformed_successfully
 
 
 def main():
